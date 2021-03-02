@@ -3,6 +3,9 @@ import csv
 import numpy as np
 from IPython.core.display import display
 from rdkit import Chem
+from rdkit.Chem import rdFMCS
+import re
+from src.utils import VdW_volume
 
 from src.utils import replace_rounds
 
@@ -27,7 +30,11 @@ class LigandValueFinder:
             (r'\[C+@+H*\]', 'C'),
             (r'\[N\+\]\(\=O\)\[O\-\]', 'N(=O)=O'),
             (r'\[O\+\]', 'O')
-        ]).split('C(*)')[0]
+        ])#.split('C(*)')[0]
+        if query_smiles.count("*") > 1:
+            chain = Chem.MolFromSmiles('N')
+            products = Chem.ReplaceSubstructs(Chem.MolFromSmiles(query_smiles), Chem.MolFromSmarts('[#0]'), chain)
+            query_smiles = Chem.MolToSmiles(products[0])
 
         exact_match = self.ligand_values.get(query_smiles)
         if exact_match is not None:
@@ -41,6 +48,7 @@ class LigandValueFinder:
                 self.ligand_values
             )
         )
+
 
         largest_match_idx = np.argmax(list(map(lambda match: self.molecules[match].GetNumAtoms(), root_matches)))
         return *self.ligand_values[root_matches[largest_match_idx]], root_matches[largest_match_idx]

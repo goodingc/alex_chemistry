@@ -20,7 +20,7 @@ def smiles_to_svg(smiles):
     mc = Chem.Mol(mol.ToBinary())
     for atom in mc.GetAtoms():
         atom.SetAtomMapNum(atom.GetIdx())
-    drawer = rdMolDraw2D.MolDraw2DSVG(500, 300)
+    drawer = rdMolDraw2D.MolDraw2DSVG(250, 150)
     drawer.DrawMolecule(mc)
     drawer.FinishDrawing()
     svg = drawer.GetDrawingText()
@@ -74,6 +74,27 @@ def remove_titanium(molecule):
     smiles = Chem.MolToSmiles(molecule)
     return Chem.MolFromSmiles(list(filter(lambda s: len(s) > 18, smiles.split('.')))[0])
 
+def get_bridge_idty(ligand, class_pattern):
+    # display("get bridge ligand")
+    ligand = Chem.DeleteSubstructs(ligand, Chem.MolFromSmiles("[N+](=O)[O-]", sanitize=False))
+    # display(ligand)
+    root_pattern = Chem.MolFromSmiles(class_pattern, sanitize=False)
+    chains = Chem.ReplaceCore(ligand, root_pattern)
+    if chains is None:
+        return None
+    pieces = Chem.GetMolFrags(chains,asMols=True)
+    ligands = [Chem.MolToSmiles(x,True) for x in pieces]
+    for ligand in ligands:
+        if (Chem.MolFromSmiles(ligand)).GetNumAtoms() < 20:
+            ast_count = 0
+            for i in range(len(ligand)):
+                if ligand[i] == "*":
+                    ast_count += 1
+                    if ast_count == 2:
+                        # display(re.sub(r"\[\d\*\]", "*", ligand))
+                        # display(Chem.MolFromSmiles(re.sub(r"\[\d\*\]", "*", ligand)))
+                        # display("----------------------------------")
+                        return re.sub(r"\[\d\*\]", "*", ligand)
 
 def remove_bridge(molecule, root_pattern_smiles, removal_indices):
     root_pattern = Chem.MolFromSmiles(root_pattern_smiles)
@@ -90,14 +111,16 @@ def remove_bridge(molecule, root_pattern_smiles, removal_indices):
     molecule = e_mol.GetMol()
     return get_largest_fragment(molecule)
 
-
 def VdW_volume(mol):
+    if mol == '':
+        return 1.32
     non_aromatic_idx = 0
     Ra = 0
     Rna = 0
     H_count = 0
     structure = Chem.MolFromSmiles(mol)
     atoms_to_count = ['C', 'N', 'O', 'F', 'Cl', 'Br']
+    # display(structure)
     H_structure = Chem.AddHs(structure)
     for atom in (structure.GetAtoms()):
         H_count += int(atom.GetTotalNumHs())
