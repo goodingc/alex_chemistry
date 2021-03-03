@@ -27,7 +27,7 @@ def smiles_to_svg(smiles: str) -> str:
     drawer.DrawMolecule(mc)
     drawer.FinishDrawing()
     svg = drawer.GetDrawingText()
-    return svg.replace('svg:', '')
+    return f"<span title='{smiles}'>{svg.replace('svg:', '')}</span>"
 
 
 def display_numbered(mol: Mol):
@@ -115,41 +115,7 @@ def remove_bridge(molecule: Mol, root_pattern_smiles: str, removal_indices: List
     return get_largest_fragment(molecule)
 
 
-def vd_w_volume(smiles: str) -> float:
-    if smiles == '':
-        return 1.32
-    non_aromatic_idx = 0
-    ra = 0
-    rna = 0
-    h_count = 0
-    structure = Chem.MolFromSmiles(smiles)
-    atoms_to_count = ['C', 'N', 'O', 'F', 'Cl', 'Br']
-    # display(structure)
-    h_structure = Chem.AddHs(structure)
-    for atom in (structure.GetAtoms()):
-        h_count += int(atom.GetTotalNumHs())
-    count = {}
-    for atom in atoms_to_count:
-        count[f'{atom}-count'] = len(structure.GetSubstructMatches(Chem.MolFromSmiles(atom)))
-    bonds = h_structure.GetBonds()
-    info = structure.GetRingInfo()
-    rings = info.AtomRings()
-    for ring in rings:
-        for idx in ring:
-            if not structure.GetAtomWithIdx(idx).GetIsAromatic():
-                non_aromatic_idx += 1
-        if non_aromatic_idx == 0:
-            ra += 1
-        else:
-            rna += 1
-        non_aromatic_idx = 0
 
-    atom_count = list(count.values())
-    atom_contributions = [20.58, 15.60, 14.71, 13.31, 22.45, 26.52]
-    products = [a * b for a, b in zip(atom_count, atom_contributions)]
-
-    return 0.801 * ((sum(products) + (int(h_count) * 7.24)) - (len(bonds) * 5.92) - (int(ra) * 14.7) - (
-            int(rna) * 3.8)) + 0.18
 
 
 def replace_rounds(haystack: str, replacements: List[Tuple[str, str]]) -> str:
