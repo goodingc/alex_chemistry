@@ -43,7 +43,7 @@ def get_largest_fragment(mol: Mol) -> Mol:
     return frags[i]
 
 
-def get_ligands(molecule: Mol, root_pattern_smiles: str, ligand_root_indices: List[int]) -> Optional[List[List[str]]]:
+def get_ligands(molecule: Mol, root_pattern_smiles: str, ligand_root_indices: List[int]) -> Optional[List[str]]:
     root_pattern = Chem.MolFromSmiles(root_pattern_smiles)
     chains = Chem.ReplaceCore(molecule, root_pattern, labelByIndex=True)
     if chains is None:
@@ -115,45 +115,44 @@ def remove_bridge(molecule: Mol, root_pattern_smiles: str, removal_indices: List
     return get_largest_fragment(molecule)
 
 
-def VdW_volume(mol):
-    if mol == '':
+def vd_w_volume(smiles: str) -> float:
+    if smiles == '':
         return 1.32
     non_aromatic_idx = 0
-    Ra = 0
-    Rna = 0
-    H_count = 0
-    structure = Chem.MolFromSmiles(mol)
+    ra = 0
+    rna = 0
+    h_count = 0
+    structure = Chem.MolFromSmiles(smiles)
     atoms_to_count = ['C', 'N', 'O', 'F', 'Cl', 'Br']
     # display(structure)
-    H_structure = Chem.AddHs(structure)
+    h_structure = Chem.AddHs(structure)
     for atom in (structure.GetAtoms()):
-        H_count += int(atom.GetTotalNumHs())
+        h_count += int(atom.GetTotalNumHs())
     count = {}
-    for atoms in atoms_to_count:
-        count["{}-count".format(atoms)] = len(structure.GetSubstructMatches(Chem.MolFromSmiles(atoms)))
-    bonds = H_structure.GetBonds()
+    for atom in atoms_to_count:
+        count[f'{atom}-count'] = len(structure.GetSubstructMatches(Chem.MolFromSmiles(atom)))
+    bonds = h_structure.GetBonds()
     info = structure.GetRingInfo()
     rings = info.AtomRings()
     for ring in rings:
-        for id in ring:
-            if not structure.GetAtomWithIdx(id).GetIsAromatic():
+        for idx in ring:
+            if not structure.GetAtomWithIdx(idx).GetIsAromatic():
                 non_aromatic_idx += 1
         if non_aromatic_idx == 0:
-            Ra += 1
+            ra += 1
         else:
-            Rna += 1
+            rna += 1
         non_aromatic_idx = 0
 
     atom_count = list(count.values())
     atom_contributions = [20.58, 15.60, 14.71, 13.31, 22.45, 26.52]
     products = [a * b for a, b in zip(atom_count, atom_contributions)]
 
-    Total_Volume = 0.801 * ((sum(products) + (int(H_count) * 7.24)) - (len(bonds) * 5.92) - (int(Ra) * 14.7) - (
-            int(Rna) * 3.8)) + 0.18
-    return Total_Volume
+    return 0.801 * ((sum(products) + (int(h_count) * 7.24)) - (len(bonds) * 5.92) - (int(ra) * 14.7) - (
+            int(rna) * 3.8)) + 0.18
 
 
-def replace_rounds(haystack: str, replacements: List[Tuple[str, str]]):
+def replace_rounds(haystack: str, replacements: List[Tuple[str, str]]) -> str:
     return reduce(lambda haystack, sub: re.sub(sub[0], sub[1], haystack), replacements, haystack)
 
 
@@ -167,3 +166,11 @@ def display_table(headers: List[str], data: List[List[str]]):
     </table>
     """
     display(HTML(html))
+
+
+def smiles_html(smiles: str) -> str:
+    if len(smiles) > 10:
+        return f"""
+        <abbr title="{smiles}">{smiles[:min(len(smiles), 10)]}...</abbr>
+        """
+    return smiles

@@ -1,18 +1,19 @@
 import csv
-from typing import Tuple
+from typing import Tuple, Dict
 
 import numpy as np
 from IPython.core.display import display
 from rdkit import Chem
 from rdkit.Chem import rdFMCS
 import re
-from src.utils import VdW_volume
+from src.utils import vd_w_volume
 
 from src.utils import replace_rounds
 
 
 class MoleculeValueFinder:
-    def __init__(self, data_file_path):
+
+    def __init__(self, data_file_path: str):
         self.ligand_values = {}
         self.molecules = {}
         with open(data_file_path) as file:
@@ -23,7 +24,7 @@ class MoleculeValueFinder:
             self.ligand_values[smiles] = (float(row[1]), float(row[2]))
             self.molecules[smiles] = Chem.MolFromSmiles(smiles)
 
-    def get_values(self, query_smiles) -> Tuple[float, float, float]:
+    def get_values(self, query_smiles: str) -> Tuple[float, float, float]:
         if query_smiles == '' or query_smiles == '*':
             return 0, 0, 0
         query_smiles = replace_rounds(query_smiles, [
@@ -38,10 +39,9 @@ class MoleculeValueFinder:
 
         exact_match = self.ligand_values.get(query_smiles)
         if exact_match is not None:
-            return *exact_match, 0
+            return exact_match[0], exact_match[1], 0.
 
         query_mol = Chem.MolFromSmiles(query_smiles)
-        display(query_smiles)
         root_matches = list(
             filter(
                 lambda ligand: ligand[1] == query_smiles[1] and query_mol.HasSubstructMatch(self.molecules[ligand]),
@@ -50,4 +50,5 @@ class MoleculeValueFinder:
         )
 
         largest_match_idx = np.argmax(list(map(lambda match: self.molecules[match].GetNumAtoms(), root_matches)))
-        return *self.ligand_values[root_matches[largest_match_idx]], 0
+        match = self.ligand_values[root_matches[largest_match_idx]]
+        return match[0], match[1], 0

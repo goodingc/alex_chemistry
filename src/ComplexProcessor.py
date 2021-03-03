@@ -9,14 +9,14 @@ from rdkit import Chem
 
 from src.MoleculeValueFinder import MoleculeValueFinder
 from src.Models import Complex, Molecule
-from src.utils import remove_titanium, remove_bridge, get_ligands, VdW_volume, get_bridge_idty, \
+from src.utils import remove_titanium, remove_bridge, get_ligands, vd_w_volume, get_bridge_idty, \
     replace_rounds, display_table
 
 LigandResult = Tuple[List[Optional[str]], Optional[str]]
 
 
-def metallocene(molecule: str) -> LigandResult:
-    x = reduce(
+def metallocene(smiles: str) -> LigandResult:
+    molecule = reduce(
         lambda mol, smiles:
         Chem.DeleteSubstructs(
             mol,
@@ -27,10 +27,10 @@ def metallocene(molecule: str) -> LigandResult:
             '[Ti]',
             '[Cl-]',
         ],
-        molecule
+        smiles
     )
     root_pattern = Chem.MolFromSmiles("c1cccc1.c1cccc1", sanitize=False)
-    chains = Chem.ReplaceCore(x, root_pattern, labelByIndex=True)
+    chains = Chem.ReplaceCore(molecule, root_pattern, labelByIndex=True)
     pieces = Chem.GetMolFrags(chains, asMols=True)
     ligands = [Chem.MolToSmiles(x, True) for x in pieces]
     rs = []
@@ -51,18 +51,18 @@ def metallocene(molecule: str) -> LigandResult:
 def onno(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
     molecule_br = remove_bridge(molecule, "NCCN", [1, 2])
-    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], get_bridge_idty(molecule, "N.N")
+    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1]), get_bridge_idty(molecule, "N.N")
 
 
 def ono(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
-    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], get_bridge_idty(molecule, "N.N")
+    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1]), get_bridge_idty(molecule, "N.N")
 
 
 def onnoen(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
     molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6])
-    return [None, *get_ligands(molecule, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 0])[0]], get_bridge_idty(molecule, "N.N")
+    return [None, *get_ligands(molecule, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 0])], get_bridge_idty(molecule, "N.N")
 
 
 def onnoalen(molecule: str) -> LigandResult:
@@ -71,13 +71,13 @@ def onnoalen(molecule: str) -> LigandResult:
     molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6]) if try_1 is None else try_1
     try_1 = get_ligands(molecule_br, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])
     if try_1 is None:
-        return [None, *get_ligands(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])[0]], get_bridge_idty(molecule, "N.N")
-    return try_1[0], get_bridge_idty(molecule, "N.N")
+        return [None, *get_ligands(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])], get_bridge_idty(molecule, "N.N")
+    return try_1, get_bridge_idty(molecule, "N.N")
 
 
 def onoen(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
-    return get_ligands(molecule, "OC1=CC=CC=C1C=N", [8, 5, 4, 3, 2, 7])[0], None
+    return get_ligands(molecule, "OC1=CC=CC=C1C=N", [8, 5, 4, 3, 2, 7]), None
 
 
 extraction_dictionary = {
@@ -126,7 +126,7 @@ class ComplexProcessor:
                 sanitize=False
             ))
             complex.ligands = list(map(lambda l: None if l is None else Molecule(l), ligand_smiles))
-            complex.bridge = Molecule(bridge_smiles)
+            complex.bridge = None if bridge_smiles is None else Molecule(bridge_smiles)
 
     def find_ligand_values(self, data_file_path: str):
         value_finder = MoleculeValueFinder(data_file_path)
@@ -196,7 +196,7 @@ class ComplexProcessor:
                 sheet.cell(row, (4 * (i + 1)) - 1,
                            'No ligand' if self.ligands[row][i] is None else self.ligands[row][i])
                 sheet.cell(row, (4 * (i + 1)) + 2,
-                           'N/A' if self.ligands[row][i] is None else VdW_volume(self.ligands[row][i]))
+                           'N/A' if self.ligands[row][i] is None else vd_w_volume(self.ligands[row][i]))
                 sheet.cell(row, (4 * (i + 1)), 'N/A' if self.ligands[row][i] is None else self.ligand_values[row][i][0])
                 sheet.cell(row, (4 * (i + 1)) + 1,
                            'N/A' if self.ligands[row][i] is None else self.ligand_values[row][i][1])
