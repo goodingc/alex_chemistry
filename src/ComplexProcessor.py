@@ -1,16 +1,21 @@
 import re
 from functools import reduce
+from typing import List, Dict, Tuple, Optional
 
 import openpyxl
 from IPython.display import HTML, display
 from openpyxl import Workbook
 from rdkit import Chem
 
-from src.LigandValueFinder import LigandValueFinder
-from src.utils import remove_titanium, remove_bridge, get_ligands2, smiles_to_svg, VdW_volume, get_bridge_idty, replace_rounds
+from src.MoleculeValueFinder import MoleculeValueFinder
+from src.Models import Complex, Molecule
+from src.utils import remove_titanium, remove_bridge, get_ligands, VdW_volume, get_bridge_idty, \
+    replace_rounds, display_table
+
+LigandResult = Tuple[List[Optional[str]], Optional[str]]
 
 
-def metallocene(molecule):
+def metallocene(molecule: str) -> LigandResult:
     x = reduce(
         lambda mol, smiles:
         Chem.DeleteSubstructs(
@@ -26,63 +31,53 @@ def metallocene(molecule):
     )
     root_pattern = Chem.MolFromSmiles("c1cccc1.c1cccc1", sanitize=False)
     chains = Chem.ReplaceCore(x, root_pattern, labelByIndex=True)
-    if chains is None:
-        return None
     pieces = Chem.GetMolFrags(chains, asMols=True)
     ligands = [Chem.MolToSmiles(x, True) for x in pieces]
-    Rs = []
+    rs = []
     for ligand in ligands:
         ligand = replace_rounds(ligand, [(r'\[C+@+H*\]', 'C'), (r"\[\d\*\]", "*")])
         if ligand.count("*") > 1:
-            Rs.append(ligand.split('C(*)')[0])
-            Rs.append("*C"+ligand.split("C(*)")[1])
-            return [*Rs, *([None] * (7 - len(Rs)))]
+            rs.append(ligand.split('C(*)')[0])
+            rs.append("*C" + ligand.split("C(*)")[1])
+            return [*rs, *([None] * (6 - len(rs)))], None
         if len(ligand) < 5:
             continue
         else:
-            Rs.append(re.sub(r"\[\d\*\]", "*", ligand))
-    ligands = [*Rs, *([""] * (2 - len(Rs)))]
-    return [*ligands, *([None] * (7 - len(ligands)))]
+            rs.append(re.sub(r"\[\d\*\]", "*", ligand))
+    ligands = [*rs, *([""] * (2 - len(rs)))]
+    return [*ligands, *([None] * (6 - len(ligands)))], None
 
 
-def onno(molecule):
+def onno(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
     molecule_br = remove_bridge(molecule, "NCCN", [1, 2])
-    return [*get_ligands2(molecule_br, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], get_bridge_idty(molecule, "N.N")]
-    # return [*get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6])[0], None]
+    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], get_bridge_idty(molecule, "N.N")
 
 
-def ono(molecule):
+def ono(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
-    return [*get_ligands2(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], None]
-    # return [*get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6]), None]
+    return get_ligands(molecule, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])[0], get_bridge_idty(molecule, "N.N")
 
 
-def onnoen(molecule):
+def onnoen(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
     molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6])
-    # return [None, *get_ligands(molecule, "OC1=CC=CC=C1C=N", [5, 4, 3 ,2])[0], None]
-    return [None, *get_ligands2(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 0])[0], get_bridge_idty(molecule, "N.N")]
+    return [None, *get_ligands(molecule, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 0])[0]], get_bridge_idty(molecule, "N.N")
 
 
-def onnoalen2(molecule):
-    # display(molecule)
+def onnoalen(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
-    # display(molecule)
     try_1 = remove_bridge(molecule, "NCCN", [1, 2])
+    molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6]) if try_1 is None else try_1
+    try_1 = get_ligands(molecule_br, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])
     if try_1 is None:
-        molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6])
-    else:
-        molecule_br = try_1
-    try_1 = get_ligands2(molecule_br, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])
-    if try_1 is None:
-        return [None, *get_ligands2(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])[0], get_bridge_idty(molecule, "N.N")]
-    return [*try_1[0], get_bridge_idty(molecule, "N.N")]
+        return [None, *get_ligands(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])[0]], get_bridge_idty(molecule, "N.N")
+    return try_1[0], get_bridge_idty(molecule, "N.N")
 
 
-def onoen(molecule):
+def onoen(molecule: str) -> LigandResult:
     molecule = remove_titanium(molecule)
-    return [*get_ligands2(molecule, "OC1=CC=CC=C1C=N", [8, 5, 4, 3, 2, 7])[0], None]
+    return get_ligands(molecule, "OC1=CC=CC=C1C=N", [8, 5, 4, 3, 2, 7])[0], None
 
 
 extraction_dictionary = {
@@ -90,12 +85,13 @@ extraction_dictionary = {
     'ONNO': onno,
     'ONO': ono,
     'ONNOen': onnoen,
-    'ONNOalen': onnoalen2,
+    'ONNOalen': onnoalen,
     'ONOen': onoen
 }
 
 
 class ComplexProcessor:
+    complexes: Dict[int, Complex]
 
     def __init__(self, input_workbook_path):
         workbook = openpyxl.load_workbook(input_workbook_path, data_only=True)
@@ -112,73 +108,46 @@ class ComplexProcessor:
                 row += 1
                 continue
             smiles = input_sheet.cell(row=row, column=2).value
-            self.complexes[row] = (smiles, class_name)
+            smiles = replace_rounds(smiles, [
+                (r'\[Del\]', ''),
+                (r'\(\)', ''),
+            ])
+            self.complexes[row] = Complex(smiles, class_name)
             row += 1
 
     def extract_ligands(self):
-        self.ligands = {}
-        for row in self.complexes:
-            self.ligands[row] = extraction_dictionary[self.complexes[row][1]](Chem.MolFromSmiles(
-                self.complexes[row][0],
+        for _, complex in self.complexes.items():
+            ligand_smiles, bridge_smiles = extraction_dictionary[complex.class_name](Chem.MolFromSmiles(
+                complex.smiles,
                 replacements={
                     '[Del]': '',
                     '()': '',
                 },
                 sanitize=False
             ))
+            complex.ligands = list(map(lambda l: None if l is None else Molecule(l), ligand_smiles))
+            complex.bridge = Molecule(bridge_smiles)
 
-    def find_ligand_values(self, data_file_path):
-        self.ligand_values = {}
-        value_finder = LigandValueFinder(data_file_path)
-        for row in self.ligands:
-            self.ligand_values[row] = list(
-                map(lambda ligand: None if ligand is None else value_finder.get_values(ligand), self.ligands[row])
-            )
-        pass
+    def find_ligand_values(self, data_file_path: str):
+        value_finder = MoleculeValueFinder(data_file_path)
+        for _, complex in self.complexes.items():
+            for ligand in complex.ligands:
+                if ligand is not None:
+                    ligand.set_values(value_finder)
 
     def display(self):
-        rows = ""
-
-        for row in self.ligands:
-            rows += f"""
-            <tr>
-                <td>{row}</td>
-                <td>{smiles_to_svg(self.complexes[row][0])}<br>{self.complexes[row][0]}</td>
-                <td>{self.complexes[row][1]}</td>
-                {''.join(
-                list(
-                    map(
-                        lambda l_v: 
-                        "<td>No ligand</td>" 
-                        if l_v[0] is None else 
-                        f'<td>{smiles_to_svg(l_v[0])}<br>{l_v[0]}: {l_v[1][:2]}<br>{smiles_to_svg(l_v[1][2])}</td>',
-                        zip(self.ligands[row], self.ligand_values[row])
-                    )
-                )
-            )}
-            </tr>
-            """
-
-        html = f"""
-        <table style="font-size: 8pt">
-            <hr>
-                <th>Row Index</th>
-                <th>Molecule</th>
-                <th>Class</th>
-                <th>R<sup>1</sup></th>
-                <th>R<sup>2</sup></th>
-                <th>R<sup>3</sup></th>
-                <th>R<sup>4</sup></th>
-                <th>R<sup>5</sup></th>
-                <th>R<sup>6</sup></th>
-                <th>R<sup>7</sup></th>
-            {rows}
-        </table>
-        """
-        # f = open("out.html", "w")
-        # f.write(html)
-        # f.close()
-        display(HTML(html))
+        display_table([
+            'Row',
+            'Complex',
+            'Class',
+            'R<sup>1</sup>',
+            'R<sup>2</sup>',
+            'R<sup>3</sup>',
+            'R<sup>4</sup>',
+            'R<sup>5</sup>',
+            'R<sup>6</sup>',
+            'Bridge'
+        ], list(map(lambda row: [row, *self.complexes[row].get_row_elements()], self.complexes)))
 
     def write_to_sheet(self, output_workbook_path):
         workbook = Workbook()
@@ -224,11 +193,15 @@ class ComplexProcessor:
             sheet.cell(row, 2, self.complexes[row][1])
             ligands = self.ligands[row][2]
             for i in range(7):
-                sheet.cell(row, (4*(i+1))-1, 'No ligand' if self.ligands[row][i] is None else self.ligands[row][i])
-                sheet.cell(row, (4*(i+1))+2, 'N/A' if self.ligands[row][i] is None else VdW_volume(self.ligands[row][i]))
+                sheet.cell(row, (4 * (i + 1)) - 1,
+                           'No ligand' if self.ligands[row][i] is None else self.ligands[row][i])
+                sheet.cell(row, (4 * (i + 1)) + 2,
+                           'N/A' if self.ligands[row][i] is None else VdW_volume(self.ligands[row][i]))
                 sheet.cell(row, (4 * (i + 1)), 'N/A' if self.ligands[row][i] is None else self.ligand_values[row][i][0])
-                sheet.cell(row, (4 * (i + 1))+1, 'N/A' if self.ligands[row][i] is None else self.ligand_values[row][i][1])
+                sheet.cell(row, (4 * (i + 1)) + 1,
+                           'N/A' if self.ligands[row][i] is None else self.ligand_values[row][i][1])
         workbook.save(output_workbook_path)
+
 
 if __name__ == '__main__':
     x = ComplexProcessor('../res/Titanium spreadsheet MkII - Copy.xlsx')
