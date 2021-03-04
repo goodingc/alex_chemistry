@@ -137,6 +137,6 @@ def display_table(headers: List[str], data: List[List[str]]):
 def smiles_html(smiles: str) -> str:
     if len(smiles) > 10:
         return f"""
-        <abbr title="{smiles}">{smiles[:min(len(smiles), 10)]}...</abbr>
+        <span title="{smiles}">{smiles[:min(len(smiles), 10)]}...</span>
         """
     return smiles

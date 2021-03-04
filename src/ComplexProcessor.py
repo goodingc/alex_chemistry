@@ -3,14 +3,12 @@ from functools import reduce
 from typing import List, Dict, Tuple, Optional
 
 import openpyxl
-from IPython.display import HTML, display
 from openpyxl import Workbook
 from rdkit import Chem
 
 from src.MoleculeValueFinder import MoleculeValueFinder
 from src.Models import Complex, Molecule
-from src.utils import remove_titanium, remove_bridge, get_ligands, vd_w_volume, get_bridge_idty, \
-    replace_rounds, display_table
+from src.utils import remove_titanium, remove_bridge, get_ligands, get_bridge_idty, replace_rounds, display_table
 
 LigandResult = Tuple[List[Optional[str]], Optional[str]]
 
