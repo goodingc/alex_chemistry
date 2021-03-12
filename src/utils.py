@@ -11,7 +11,37 @@ import re
 from rdkit.Chem.rdchem import Mol
 
 
+def replace_rounds(haystack: str, replacements: List[Tuple[str, str]]) -> str:
+    return reduce(lambda haystack, sub: re.sub(sub[0], sub[1], haystack), replacements, haystack)
+
+
+def is_transition_metal(at):
+    n = at.GetAtomicNum()
+    return (n>=22 and n<=29) or (n>=40 and n<=47) or (n>=72 and n<=79)
+
+
+def set_dative_bonds(mol, fromAtoms=(7,8)):
+    pt = Chem.GetPeriodicTable()
+    rwmol = Chem.RWMol(mol)
+    rwmol.UpdatePropertyCache(strict=False)
+    metals = [at for at in rwmol.GetAtoms() if is_transition_metal(at)]
+    for metal in metals:
+        for nbr in metal.GetNeighbors():
+            if nbr.GetAtomicNum() in fromAtoms and \
+               nbr.GetExplicitValence()>pt.GetDefaultValence(nbr.GetAtomicNum()) and \
+               rwmol.GetBondBetweenAtoms(nbr.GetIdx(),metal.GetIdx()).GetBondType() == Chem.BondType.SINGLE:
+                rwmol.RemoveBond(nbr.GetIdx(),metal.GetIdx())
+                rwmol.AddBond(nbr.GetIdx(),metal.GetIdx(),Chem.BondType.DATIVE)
+    return rwmol
+
+
 def smiles_to_svg(smiles: str) -> str:
+    if smiles.count("Ti") > 0:
+        smiles = replace_rounds(smiles, [
+            (r'c\dcccc\d', "C1=CC=CC1"),
+            (r'.c\d', '.C1'),
+            (r'cccc\d', '=CC=CC1')
+        ])
     mol = Chem.MolFromSmiles(
         smiles,
         replacements={
@@ -20,6 +50,7 @@ def smiles_to_svg(smiles: str) -> str:
         },
         sanitize=False
     )
+    mol = set_dative_bonds(mol)
     mc = Chem.Mol(mol.ToBinary())
     for atom in mc.GetAtoms():
         atom.SetAtomMapNum(atom.GetIdx())
@@ -76,27 +107,21 @@ def remove_titanium(molecule: Mol) -> Mol:
     return Chem.MolFromSmiles(list(filter(lambda s: len(s) > 18, smiles.split('.')))[0])
 
 
-def get_bridge_idty(ligand: Mol, class_pattern: str) -> Optional[str]:
-    # display("get bridge ligand")
+def get_bridge_idty(ligand: Mol, class_pattern: str) -> Optional[list[str]]:
     ligand = Chem.DeleteSubstructs(ligand, Chem.MolFromSmiles("[N+](=O)[O-]", sanitize=False))
-    # display(ligand)
     root_pattern = Chem.MolFromSmiles(class_pattern, sanitize=False)
     chains = Chem.ReplaceCore(ligand, root_pattern)
+    # display(chains)
     if chains is None:
         return None
     pieces = Chem.GetMolFrags(chains, asMols=True)
-    ligands = [Chem.MolToSmiles(x, True) for x in pieces]
+    ligands = sorted([Chem.MolToSmiles(x, True) for x in pieces], key=len)
+    bridge = []
     for ligand in ligands:
-        if (Chem.MolFromSmiles(ligand)).GetNumAtoms() < 20:
-            ast_count = 0
-            for i in range(len(ligand)):
-                if ligand[i] == "*":
-                    ast_count += 1
-                    if ast_count == 2:
-                        # display(re.sub(r"\[\d\*\]", "*", ligand))
-                        # display(Chem.MolFromSmiles(re.sub(r"\[\d\*\]", "*", ligand)))
-                        # display("----------------------------------")
-                        return re.sub(r"\[\d\*\]", "*", ligand)
+        if (Chem.MolFromSmiles(ligand)).GetNumAtoms() < 20 and ligand.count("*") > 1:
+            bridge.append(re.sub(r"\[\d\*\]", "*", ligand))
+    return bridge
+
 
 
 def remove_bridge(molecule: Mol, root_pattern_smiles: str, removal_indices: List[int]) -> Optional[Mol]:
@@ -113,13 +138,6 @@ def remove_bridge(molecule: Mol, root_pattern_smiles: str, removal_indices: List
         e_mol.RemoveAtom(i)
     molecule = e_mol.GetMol()
     return get_largest_fragment(molecule)
-
-
-
-
-
-def replace_rounds(haystack: str, replacements: List[Tuple[str, str]]) -> str:
-    return reduce(lambda haystack, sub: re.sub(sub[0], sub[1], haystack), replacements, haystack)
 
 
 def display_table(headers: List[str], data: List[List[str]]):

@@ -12,11 +12,13 @@ from rdkit.Chem.rdchem import Mol
 
 from src.utils import replace_rounds, display_numbered
 
-halogen_score = 4
+halogen_score = 5
 
 atom_scores = {
-    'O': 5,
-    'N': 10,
+    'O': 6,
+    'N': 7,
+    'c': 2,
+    'n': 14,
     'F': halogen_score,
     'Cl': halogen_score,
     'Br': halogen_score,
@@ -40,19 +42,23 @@ class MoleculeValueFinder:
     def get_values(self, query_smiles: str) -> Tuple[float, float, float]:
         if query_smiles == '' or query_smiles == '*':
             return 0, 0, 1.32
+        query_smiles = Chem.MolToSmiles(Chem.MolFromSmiles(query_smiles))
         query_smiles = replace_rounds(query_smiles, [
             (r'\[C+@+H*\]', 'C'),
+            (r'N+@+H*', 'N'),
             (r'\[N\+\]\(\=O\)\[O\-\]', 'N(=O)=O'),
             (r'\[O\+\]', 'O')
         ])
+        volume = self.vd_w_volume(query_smiles)
         if query_smiles.count("*") > 1:
+            volume = int(self.vd_w_volume(query_smiles)) * 0.5
             chain = Chem.MolFromSmiles('N')
             products = Chem.ReplaceSubstructs(Chem.MolFromSmiles(query_smiles), Chem.MolFromSmarts('[#0]'), chain)
             query_smiles = Chem.MolToSmiles(products[0])
 
         exact_match = self.ligand_values.get(query_smiles)
         if exact_match is not None:
-            return exact_match[0], exact_match[1], self.vd_w_volume(query_smiles)
+            return exact_match[0], exact_match[1], volume
 
         query_mol = Chem.MolFromSmiles(query_smiles)
         root_matches = list(
@@ -62,6 +68,7 @@ class MoleculeValueFinder:
             )
         )
 
+
         best_match = None
         best_match_score = float("-inf")
 
@@ -70,55 +77,73 @@ class MoleculeValueFinder:
             if score >= best_match_score:
                 best_match = match
                 best_match_score = score
-        display('ORIGINAL')
-        display_numbered(query_mol)
-        display('MATCH')
-        display_numbered(self.molecules[best_match])
-        display('SCORE')
-        display(best_match_score)
+
+
         mcs = rdFMCS.FindMCS([query_mol, self.molecules[best_match]])
         mcs_mol = Chem.MolFromSmarts(mcs.smartsString)
-        display('MCS')
-        display_numbered(mcs_mol)
+
         match_values = self.ligand_values[best_match]
-        return match_values[0], match_values[1], self.vd_w_volume(query_smiles)
+        return match_values[0], match_values[1], volume
+
 
     @staticmethod
     def get_match_score(query: Mol, match: Mol) -> float:
         score = 0
-        mcs = rdFMCS.FindMCS([query, match], ringMatchesRingOnly=True, completeRingsOnly=True)
+        mcs = rdFMCS.FindMCS([query, match], completeRingsOnly=True)
         mcs_mol = Chem.MolFromSmarts(mcs.smartsString)
-
+        smiles = Chem.MolToSmiles(mcs_mol)
+        mcs_mol = Chem.MolFromSmiles(smiles, sanitize=False)
         if '#0' not in mcs.smartsString:
             return float("-inf")
+
+        def get_atom_symbol(atom):
+            if atom.GetIsAromatic():
+                return atom.GetSymbol().lower()
+            return atom.GetSymbol()
+
 
         def get_root_distance_weight(mol: Mol, atom_idx: int) -> float:
             if atom_idx == 0:
                 return 0
             return exp(-len(Chem.GetShortestPath(mol, 0, atom_idx)) / 7)
 
+
+        matching_atoms = ""
         for atom in mcs_mol.GetAtoms():
+            matching_atoms += str(get_atom_symbol(atom))
             if atom.GetIdx() == 0:
                 continue
             w = get_root_distance_weight(mcs_mol, atom.GetIdx())
-            score += (atom_scores.get(atom.GetSymbol()) or 1) * w
+            score += (atom_scores.get(get_atom_symbol(atom)) or 1) * w
+
+
+        m_copy = deepcopy(match)
+        for atom in m_copy.GetAtoms():
+            atom.SetAtomMapNum(atom.GetIdx())
+
+        match_remainder = Chem.DeleteSubstructs(m_copy, mcs_mol)
+        remaining_match_atoms = ""
+        for atom in match_remainder.GetAtoms():
+            remaining_match_atoms += str(get_atom_symbol(atom))
+            w = get_root_distance_weight(match, atom.GetAtomMapNum())
+            score -= (atom_scores.get(get_atom_symbol(atom)) or 1) * w
+
 
         q_copy = deepcopy(query)
         for atom in q_copy.GetAtoms():
             atom.SetAtomMapNum(atom.GetIdx())
         query_remainder = Chem.DeleteSubstructs(q_copy, mcs_mol)
+        remaining_query_atoms = ""
         for atom in query_remainder.GetAtoms():
+            remaining_query_atoms += str(get_atom_symbol(atom))
             w = get_root_distance_weight(query, atom.GetAtomMapNum())
-            score -= (atom_scores.get(atom.GetSymbol()) or 1) * w
-
-        m_copy = deepcopy(match)
-        for atom in m_copy.GetAtoms():
-            atom.SetAtomMapNum(atom.GetIdx())
-        match_remainder = Chem.DeleteSubstructs(m_copy, mcs_mol)
-        for atom in match_remainder.GetAtoms():
-            w = get_root_distance_weight(match, atom.GetAtomMapNum())
-            score -= (atom_scores.get(atom.GetSymbol()) or 1) * w
-
+            score -= (atom_scores.get(get_atom_symbol(atom)) or 1) * w
+        match_count = q_copy.GetSubstructMatches(mcs_mol)
+        if len(match_count) > 1:
+            indices = [x for x in match_count[0] if x not in match_count[1]]
+            for index in indices:
+                atom = q_copy.GetAtomWithIdx(index)
+                score -= (atom_scores.get(get_atom_symbol(atom)) or 1) * w
         return score
 
     def get_smallest_root_match(self, mol: Mol) -> Mol:
@@ -216,7 +241,6 @@ class MoleculeValueFinder:
         h_count = 0
         structure = Chem.MolFromSmiles(smiles)
         atoms_to_count = ['C', 'N', 'O', 'F', 'Cl', 'Br']
-        # display(structure)
         h_structure = Chem.AddHs(structure)
         for atom in (structure.GetAtoms()):
             h_count += int(atom.GetTotalNumHs())

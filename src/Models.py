@@ -67,3 +67,16 @@ class Complex(Molecule):
             ),
             "No bridge" if self.bridge is None else self.bridge.get_html()
         ]
+
+    def get_xcl_row_elements(self) -> List[str]:
+        return [
+            self,
+            self.class_name,
+            *list(
+                map(
+                    lambda ligand: "No ligand" if ligand is None else ligand,
+                    self.ligands
+                )
+            ),
+            "No bridge" if self.bridge is None else self.bridge
+        ]
