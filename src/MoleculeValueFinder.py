@@ -2,7 +2,7 @@ import csv
 from copy import deepcopy
 from functools import reduce
 from math import exp
-from typing import Tuple, List, Set, Iterable
+from typing import Tuple, List, Set, Iterable, Dict
 
 import numpy as np
 from IPython.core.display import display
@@ -27,10 +27,15 @@ atom_scores = {
 
 
 class MoleculeValueFinder:
+    ligand_values: Dict[str, Tuple[float, float]]
+    molecules: Dict[str, Mol]
+
+    root_distance_cache: Dict[Tuple[Mol, int], float]
 
     def __init__(self, data_file_path: str):
         self.ligand_values = {}
         self.molecules = {}
+        self.root_distance_cache = {}
         with open(data_file_path) as file:
             _, *rows = list(csv.reader(file, delimiter='\t', quotechar='"'))
 
@@ -68,7 +73,6 @@ class MoleculeValueFinder:
             )
         )
 
-
         best_match = None
         best_match_score = float("-inf")
 
@@ -78,16 +82,24 @@ class MoleculeValueFinder:
                 best_match = match
                 best_match_score = score
 
-
         mcs = rdFMCS.FindMCS([query_mol, self.molecules[best_match]])
         mcs_mol = Chem.MolFromSmarts(mcs.smartsString)
 
         match_values = self.ligand_values[best_match]
         return match_values[0], match_values[1], volume
 
+    def get_root_distance_weight(self, mol: Mol, atom_idx: int) -> float:
+        if atom_idx == 0:
+            return 0
+        cache_key = (mol, atom_idx)
+        cache_result = self.root_distance_cache.get(cache_key)
+        if cache_result is not None:
+            return cache_result
+        result = exp(-len(Chem.GetShortestPath(mol, 0, atom_idx)) / 7)
+        self.root_distance_cache[cache_key] = result
+        return result
 
-    @staticmethod
-    def get_match_score(query: Mol, match: Mol) -> float:
+    def get_match_score(self, query: Mol, match: Mol) -> float:
         score = 0
         mcs = rdFMCS.FindMCS([query, match], completeRingsOnly=True)
         mcs_mol = Chem.MolFromSmarts(mcs.smartsString)
@@ -101,21 +113,13 @@ class MoleculeValueFinder:
                 return atom.GetSymbol().lower()
             return atom.GetSymbol()
 
-
-        def get_root_distance_weight(mol: Mol, atom_idx: int) -> float:
-            if atom_idx == 0:
-                return 0
-            return exp(-len(Chem.GetShortestPath(mol, 0, atom_idx)) / 7)
-
-
         matching_atoms = ""
         for atom in mcs_mol.GetAtoms():
             matching_atoms += str(get_atom_symbol(atom))
             if atom.GetIdx() == 0:
                 continue
-            w = get_root_distance_weight(mcs_mol, atom.GetIdx())
+            w = self.get_root_distance_weight(mcs_mol, atom.GetIdx())
             score += (atom_scores.get(get_atom_symbol(atom)) or 1) * w
-
 
         m_copy = deepcopy(match)
         for atom in m_copy.GetAtoms():
@@ -125,9 +129,8 @@ class MoleculeValueFinder:
         remaining_match_atoms = ""
         for atom in match_remainder.GetAtoms():
             remaining_match_atoms += str(get_atom_symbol(atom))
-            w = get_root_distance_weight(match, atom.GetAtomMapNum())
+            w = self.get_root_distance_weight(match, atom.GetAtomMapNum())
             score -= (atom_scores.get(get_atom_symbol(atom)) or 1) * w
-
 
         q_copy = deepcopy(query)
         for atom in q_copy.GetAtoms():
@@ -136,8 +139,9 @@ class MoleculeValueFinder:
         remaining_query_atoms = ""
         for atom in query_remainder.GetAtoms():
             remaining_query_atoms += str(get_atom_symbol(atom))
-            w = get_root_distance_weight(query, atom.GetAtomMapNum())
+            w = self.get_root_distance_weight(query, atom.GetAtomMapNum())
             score -= (atom_scores.get(get_atom_symbol(atom)) or 1) * w
+
         match_count = q_copy.GetSubstructMatches(mcs_mol)
         if len(match_count) > 1:
             indices = [x for x in match_count[0] if x not in match_count[1]]

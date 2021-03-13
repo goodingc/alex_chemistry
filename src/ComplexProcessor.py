@@ -1,15 +1,17 @@
+import concurrent.futures
+import csv
 import re
+import threading
+from copy import deepcopy, copy
 from functools import reduce
 from typing import List, Dict, Tuple, Optional
 
 import openpyxl
-from IPython.display import HTML, display
 from openpyxl import Workbook
 from rdkit import Chem
-import csv
 
-from src.MoleculeValueFinder import MoleculeValueFinder
 from src.Models import Complex, Molecule
+from src.MoleculeValueFinder import MoleculeValueFinder
 from src.utils import remove_titanium, remove_bridge, get_ligands, get_bridge_idty, \
     replace_rounds, display_table
 
@@ -75,7 +77,8 @@ def onnoalen(molecule: str) -> LigandResult:
     molecule_br = remove_bridge(molecule, "NC(C=CC=C1)=C1N", [1, 6]) if try_1 is None else try_1
     try_1 = get_ligands(molecule_br, "NCC1=CC=CC=C1O", [0, 3, 4, 5, 6, 1])
     if try_1 is None:
-        return [None, *get_ligands(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])], get_bridge_idty(molecule, "N.N")[0]
+        return [None, *get_ligands(molecule_br, "OC1=CC=CC=C1C=N", [5, 4, 3, 2, 7])], get_bridge_idty(molecule, "N.N")[
+            0]
     return try_1, get_bridge_idty(molecule, "N.N")[0]
 
 
@@ -97,7 +100,7 @@ extraction_dictionary = {
 class ComplexProcessor:
     complexes: Dict[int, Complex]
 
-    def __init__(self, input_workbook_path):
+    def __init__(self, input_workbook_path, limit=-1):
         workbook = openpyxl.load_workbook(input_workbook_path, data_only=True)
         input_sheet = workbook['ChemOffice1']
 
@@ -117,6 +120,8 @@ class ComplexProcessor:
                 (r'\(\)', ''),
             ])
             self.complexes[row] = Complex(smiles, class_name)
+            if row == limit:
+                break
             row += 1
 
     def extract_ligands(self):
@@ -132,9 +137,31 @@ class ComplexProcessor:
             complex.ligands = list(map(lambda l: None if l is None else Molecule(l), ligand_smiles))
             complex.bridge = None if bridge_smiles is None else Molecule(bridge_smiles)
 
+    def find_ligand_values_thread_pool(self, data_file_path: str):
+        value_finder = MoleculeValueFinder(data_file_path)
+
+        def find_values(data: Tuple[Complex, MoleculeValueFinder]):
+            complex = data[0]
+            value_finder = data[1]
+            for ligand in complex.ligands:
+                if ligand is not None:
+                    ligand.set_values(value_finder)
+            if complex.bridge is not None:
+                complex.bridge.set_values(value_finder)
+            return complex
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            executor.map(find_values, map(lambda c: (c, copy(value_finder)), self.complexes.values()))
+            # value_finder_count = 5
+            # value_finders = [copy(value_finder) for _ in range(value_finder_count)]
+            # futures = []
+            # for index, complex in enumerate(self.complexes.values()):
+            #     futures.append(executor.submit(find_values, (complex, value_finders[index % value_finder_count])))
+            # concurrent.futures.wait(futures)
+
     def find_ligand_values(self, data_file_path: str):
         value_finder = MoleculeValueFinder(data_file_path)
-        for _, complex in self.complexes.items():
+        for complex in self.complexes.values():
             for ligand in complex.ligands:
                 if ligand is not None:
                     ligand.set_values(value_finder)
@@ -155,7 +182,7 @@ class ComplexProcessor:
             'Bridge'
         ], list(map(lambda row: [row, *self.complexes[row].get_row_elements()], self.complexes)))
 
-    def write_to_sheet(self, output_workbook_path):
+    def write_to_sheet(self, output_workbook_path: str):
         workbook = Workbook()
         sheet = workbook.active
 
@@ -192,8 +219,6 @@ class ComplexProcessor:
             'VdW7',
         ]
 
-
-
         for (column, value) in zip(range(len(titles)), titles):
             sheet.cell(1, column + 1, value)
 
@@ -219,8 +244,8 @@ class ComplexProcessor:
 
         workbook.save(output_workbook_path)
 
-
-if __name__ == '__main__':
-    x = ComplexProcessor('../res/Titanium spreadsheet MkII - Copy.xlsx')
-    x.extract_ligands()
-    x.find_ligand_values('../res/substituent-parameters.tsv')
+    def read_from_csv(self, path: str):
+        with open(path, 'r', newline='') as file:
+            reader = csv.reader(file)
+            for row in reader:
+                pass

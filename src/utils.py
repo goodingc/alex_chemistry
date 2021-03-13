@@ -107,7 +107,7 @@ def remove_titanium(molecule: Mol) -> Mol:
     return Chem.MolFromSmiles(list(filter(lambda s: len(s) > 18, smiles.split('.')))[0])
 
 
-def get_bridge_idty(ligand: Mol, class_pattern: str) -> Optional[list[str]]:
+def get_bridge_idty(ligand: Mol, class_pattern: str) -> Optional[List[str]]:
     ligand = Chem.DeleteSubstructs(ligand, Chem.MolFromSmiles("[N+](=O)[O-]", sanitize=False))
     root_pattern = Chem.MolFromSmiles(class_pattern, sanitize=False)
     chains = Chem.ReplaceCore(ligand, root_pattern)
